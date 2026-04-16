@@ -30,6 +30,60 @@ Exporter { version = 1.7,
   description   = MM.localizeText("Export von MoneyMoney Umsätzen zu direkt importierbaren Steuer-Buchungssätzen.") }
 
 
+-- ============================================================
+--  KONFIGURATION: Buchungstext-Regeln
+--
+--  Regeln werden der Reihe nach geprüft. Die erste passende Regel gewinnt.
+--  Ist keine Regel passend, wird der Buchungstext wie bisher automatisch
+--  aus Name + Verwendungszweck + Kommentar gebildet.
+--
+--  Wenn eine Regel greift, wird ihr "text" verwendet. Ein vorhandener
+--  Kommentar wird dabei immer hintenangestellt – außer wenn "kommentar"
+--  selbst als Match-Feld genutzt wurde.
+--
+--  Verfügbare Match-Felder (alle optional, alle als Lua-Pattern):
+--    name        – Zahlungsempfänger / Auftraggeber  (z.B. "DB Vertrieb GmbH")
+--    zweck       – Verwendungszweck der Transaktion  (z.B. "Fahrkarte")
+--    kategorie   – Kategoriepfad aus MoneyMoney       (z.B. "Reisekosten")
+--    gegenkonto  – Buchungskonto SKR03/04             (z.B. "4673")
+--    finanzkonto – Finanzkonto des Bankkontos         (z.B. "1800" für Giro)
+--    kommentar   – Manuelle Notiz zum Umsatz          (z.B. "Projekt A")
+--
+--  operator: "and" (Standard) → alle angegebenen Felder müssen passen
+--            "or"             → es reicht, wenn ein Feld passt
+--
+--  Lua-Pattern-Kurzreferenz:
+--    .    beliebiges Zeichen    %d  Ziffer    %s  Leerzeichen
+--    *    0 oder mehr           +   1 oder mehr
+--    %-   literales Minus       ^   Anfang    $   Ende des Strings
+--    [ABC] eines von A, B, C
+--
+--  Beim Update: nur diesen Block in die neue Version übernehmen.
+-- ============================================================
+
+Buchungstext_Regeln = {
+
+  -- {
+  --   beschreibung = "Bahn Fahrkarten",
+  --   operator = "and",                    -- "and" (Standard) oder "or"
+  --   match = {
+  --     name        = "DB Vertrieb GmbH",  -- Zahlungsempfänger
+  --     -- zweck       = "Fahrkarte",
+  --     -- kategorie   = "Bahn",
+  --     -- gegenkonto  = "4673",
+  --     -- finanzkonto = "1800",
+  --     -- kommentar   = "Projekt A",
+  --   },
+  --   text = "Bahn - Fahrtkosten"
+  -- },
+
+}
+
+-- ============================================================
+--  Ende Konfiguration
+-- ============================================================
+
+
 -- Definition der Reihenfolge und Titel der zu exportierenden Buchungsfelder
 -- Format: Key (Internes Feld), Titel (in der ersten Zeile der CSV-Datei)
 
@@ -48,6 +102,50 @@ Exportdatei = {
   { "Notiz",         "Notiz" }
 }
 
+
+
+--
+-- BuchungstextNachRegeln: Buchungstext anhand der konfigurierten Regeln bestimmen.
+-- Gibt den neuen Text zurück, oder nil wenn keine Regel passt.
+--
+
+function BuchungstextNachRegeln(Umsatz, Finanzkonto, Gegenkonto)
+  local Felder = {
+    name        = Umsatz.Name,
+    zweck       = Umsatz.Verwendungszweck,
+    kategorie   = Umsatz.Kategorie or "",
+    gegenkonto  = Gegenkonto or "",
+    finanzkonto = Finanzkonto or "",
+    kommentar   = Umsatz.Kommentar,
+  }
+
+  for _, Regel in ipairs(Buchungstext_Regeln) do
+    local Op = Regel.operator or "and"
+    local Passt = (Op == "and")
+
+    for Feld, Muster in pairs(Regel.match) do
+      local Wert = Felder[Feld] or ""
+      local Treffer = string.find(Wert, Muster) ~= nil
+      if Op == "and" then
+        if not Treffer then Passt = false; break end
+      else -- or
+        if Treffer then Passt = true; break end
+      end
+    end
+
+    if Passt then
+      -- Kommentar hintenanstellen, außer er wurde selbst als Match-Feld genutzt
+      local KommentarAnhaengen = (Regel.match.kommentar == nil) and (Umsatz.Kommentar ~= "")
+      if KommentarAnhaengen then
+        return Regel.text .. " (" .. Umsatz.Kommentar .. ")"
+      else
+        return Regel.text
+      end
+    end
+  end
+
+  return nil
+end
 
 
 --
@@ -79,8 +177,6 @@ end
 
 
 function WriteHeader(account, startDate, endDate, transactionCount, options)
-  -- Write CSV header.
-
   local line = ""
   for Position, Eintrag in ipairs(Exportdatei) do
     if Position ~= 1 then
@@ -276,8 +372,13 @@ function WriteTransactions(account, transactions, options)
     Buchung.Kostenstelle1, Buchung.Kostenstelle2 = UmsatzMetadaten(transaction.category, Umsatz.Kommentar)
 
 
-    Buchung.Text = Umsatz.Name ..
-        ": " .. Umsatz.Verwendungszweck .. ((Umsatz.Kommentar ~= "") and (" (" .. Umsatz.Kommentar .. ")") or "")
+    local RegelText = BuchungstextNachRegeln(Umsatz, Buchung.Finanzkonto, Buchung.Gegenkonto)
+    if RegelText then
+      Buchung.Text = RegelText
+    else
+      Buchung.Text = Umsatz.Name ..
+          ": " .. Umsatz.Verwendungszweck .. ((Umsatz.Kommentar ~= "") and (" (" .. Umsatz.Kommentar .. ")") or "")
+    end
 
     -- Metadaten für Notizfeld sammeln
     local metadata = {}
@@ -293,6 +394,10 @@ function WriteTransactions(account, transactions, options)
       if item.source and item.source ~= "" then
         table.insert(metadata, item.field .. "=" .. item.source)
       end
+    end
+
+    if RegelText then
+      table.insert(metadata, "Text=MM-Regel")
     end
 
     Buchung.Notiz = table.concat(metadata, ";")

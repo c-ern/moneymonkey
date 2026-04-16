@@ -1,4 +1,8 @@
-# MoneyMonkey v1.7
+# MoneyMonkey v1.7 (Fork)
+
+> **Hinweis:** Dies ist ein Fork von [timpritlove/moneymonkey](https://github.com/timpritlove/moneymonkey).
+>
+> **Erweiterung gegenüber dem Original:** Der Konfigurationsblock `Buchungstext_Regeln` ermöglicht es, den exportierten Buchungstext anhand von Regeln automatisch vorzubelegen — zum Beispiel abhängig vom Zahlungsempfänger, Verwendungszweck, Kategorie, Gegenkonto oder Finanzkonto. So lassen sich Buchungsvorlagen aus der Buchhaltungssoftware direkt im Export vorausfüllen, ohne den Text manuell nachzutragen. → [Dokumentation](#buchungstexte-per-regeln-vorbelegen-erweiterung-dieses-forks)
 
 **MoneyMonkey** ist eine Erweiterung (Plugin, Extension) für das Online-Banking-Programm _[MoneyMoney](https://moneymoney-app.com)_ (macOS). Mit **MoneyMonkey** können Umsätze von einem oder mehreren in _MoneyMoney_ geführten Konten direkt in eine Buchhaltungssoftware als vollständige Buchungssätze importiert werden und damit den Buchungsvorgang automatisieren.
 
@@ -17,6 +21,8 @@ Mit **MoneyMonkey** ist es möglich, eine Online-Banking-gestützte Buchhaltung 
 Starte _MoneyMoney_ und wähle aus dem Menü `Hilfe` den Eintrag `Zeige Datenbank im Finder`. Im Finder öffnet sich dann der _MoneyMoney_-Ordner, der die Datenbank, die Kontoauszüge und die Erweiterungen anzeigen.
 
 Kopiere die Datei `MoneyMonkey.lua` in den Ordner `Extensions`. Das war's.
+
+> **Hinweis für eigene Regeln:** Die Buchungstext-Regeln werden direkt in `MoneyMonkey.lua` im Abschnitt `KONFIGURATION` eingetragen. Da dieser Abschnitt beim Update durch eine neue Version überschrieben wird, empfiehlt es sich, die eigenen Regeln zusätzlich an einem sicheren Ort zu sichern — z.B. als Textdatei im gleichen Ordner, in einem Passwortmanager oder in einer Notiz-App. Beim Update dann einfach den Block zwischen den Markierungen `KONFIGURATION` und `Ende Konfiguration` wieder einfügen.
 
 ## Konfiguration
 
@@ -129,6 +135,73 @@ ist äquivalent zu
 ist aber deutlich übersichtlicher und einfacher zu verwalten.
 
 Wie schon bei einer einzelnen Buchung gilt: werden einer Buchung durch Vererbung mehr als zwei unterschiedliche Kostenstellen zugewiesen führt das zum Abbruch des Exports.
+
+
+### Buchungstexte per Regeln vorbelegen _(Erweiterung dieses Forks)_
+
+> Diese Funktion ist nicht im Original enthalten und wurde in diesem Fork ergänzt.
+
+Standardmäßig setzt sich das Feld _Text_ in der Exportdatei automatisch aus Zahlungsempfänger, Verwendungszweck und optionalem Kommentar zusammen. Über den Konfigurationsblock `Buchungstext_Regeln` am Anfang von `MoneyMonkey.lua` lässt sich der Buchungstext stattdessen anhand von Regeln vorbelegen — ähnlich wie Buchungsvorlagen in der Buchhaltungssoftware, aber direkt beim Export. Bei Updates genügt es, den Block zwischen den Markierungen `KONFIGURATION` und `Ende Konfiguration` in die neue Version zu übertragen.
+
+Jede Regel besteht aus einem oder mehreren Match-Kriterien und einem Zieltext:
+
+```lua
+Buchungstext_Regeln = {
+  {
+    beschreibung = "Bahn Fahrkarten",
+    match = {
+      name       = "DB Vertrieb GmbH",  -- Zahlungsempfänger
+      gegenkonto = "4673",              -- Buchungskonto (SKR03/04)
+    },
+    text = "Bahn - Fahrtkosten"
+  },
+}
+```
+
+Die Regeln werden der Reihe nach geprüft. Die erste passende Regel gewinnt. Passt keine Regel, wird der Buchungstext wie gewohnt automatisch gebildet.
+
+#### Verfügbare Match-Felder
+
+| Feld | Bedeutung | Beispiel |
+|------|-----------|---------|
+| `name` | Zahlungsempfänger / Auftraggeber | `"DB Vertrieb GmbH"` |
+| `zweck` | Verwendungszweck der Transaktion | `"Fahrkarte"` |
+| `kategorie` | Kategoriepfad aus MoneyMoney | `"Reisekosten"` |
+| `gegenkonto` | Buchungskonto (SKR03/04) | `"4673"` |
+| `finanzkonto` | Finanzkonto des Bankkontos | `"1800"` |
+| `kommentar` | Manuelle Notiz zum Umsatz | `"Projekt A"` |
+
+Alle Felder sind optional und werden als [Lua-Pattern](https://www.lua.org/manual/5.4/manual.html#6.4.1) ausgewertet (ähnlich regulären Ausdrücken). Sonderzeichen wie `-`, `.` oder `(` müssen mit `%` escaped werden, z.B. `"GmbH %& Co"`.
+
+#### Verknüpfung der Kriterien
+
+Mit `operator = "and"` (Standard) müssen alle angegebenen Felder passen. Mit `operator = "or"` reicht es, wenn eines passt:
+
+```lua
+{
+  beschreibung = "Bahn oder Taxi",
+  operator = "or",
+  match = {
+    name = "DB Vertrieb GmbH",
+    name = "Taxi München GmbH",
+  },
+  text = "Reisekosten"
+},
+```
+
+_Hinweis:_ Innerhalb eines Feldes können mehrere Alternativen nicht durch doppelte Schlüssel angegeben werden — in Lua überschreibt der zweite Eintrag den ersten. Stattdessen lassen sich Alternativen mit dem Lua-Pattern `[ABC]` oder durch zwei separate Regeln abbilden. Für zwei ähnliche Kontonummern z.B.:
+
+```lua
+match = { gegenkonto = "467[34]" }  -- passt auf 4673 und 4674
+```
+
+#### Kommentar-Verhalten
+
+Ist ein manueller Kommentar am Umsatz vorhanden, wird er dem Regeltext automatisch in Klammern hintenangestellt — es sei denn, `kommentar` wurde selbst als Match-Feld genutzt, da er dann als bereits verarbeitet gilt:
+
+```
+Bahn - Fahrtkosten (Dienstreise Berlin)
+```
 
 
 ## MoneyMonkey starten
