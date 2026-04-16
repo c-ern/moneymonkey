@@ -173,6 +173,10 @@ Die Regeln werden der Reihe nach geprüft. Die erste passende Regel gewinnt. Pas
 
 Alle Felder sind optional und werden als [Lua-Pattern](https://www.lua.org/manual/5.4/manual.html#6.4.1) ausgewertet (ähnlich regulären Ausdrücken). Sonderzeichen wie `-`, `.` oder `(` müssen mit `%` escaped werden, z.B. `"GmbH %& Co"`.
 
+**Teilstring-Matching:** Es muss nicht der gesamte Feldinhalt übereinstimmen — es reicht, wenn das Pattern irgendwo im Wert vorkommt. `"DB Vertrieb"` matcht also auch auf `"DB Vertrieb GmbH"`. Soll exakt gematcht werden, `^` und `$` verwenden: `"^DB Vertrieb GmbH$"`.
+
+**Groß-/Kleinschreibung** wird unterschieden. `"db vertrieb"` matcht **nicht** auf `"DB Vertrieb GmbH"`.
+
 #### Verknüpfung der Kriterien
 
 Mit `operator = "and"` (Standard) müssen alle angegebenen Felder passen. Mit `operator = "or"` reicht es, wenn eines passt:
